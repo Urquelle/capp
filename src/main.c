@@ -21,17 +21,20 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmd_line, i
     mem_arena_init(temp_arena);
 
     Os *os = &(Os){0};
-    if ( !os_init(os) ) {
+    if ( os_init(os) != OS_SUCCESS ) {
+        printf("Os konnte nicht initiiert werden: %s\n", os->msg);
         exit(1);
     }
 
     Gfx *gfx = &(Gfx){0};
-    if ( !gfx_init(gfx, os, temp_arena) ) {
+    if ( gfx_init(gfx, os, perm_arena, temp_arena) != GFX_SUCCESS ) {
+        printf("Gfx konnte nicht initiiert werden: %s\n", gfx->msg);
         exit(1);
     }
 
     Ui *ui = &(Ui){0};
-    if ( !ui_init(ui, &os->mouse, gfx, perm_arena) ) {
+    if ( ui_init(ui, &os->mouse, gfx, perm_arena) != UI_SUCCESS ) {
+        printf("Ui konnte nicht initiiert werden: %s\n", ui->msg);
         exit(1);
     }
 
@@ -43,10 +46,10 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmd_line, i
         }
 
         os_push(os);
-
         gfx_render(gfx, &gfx->queue);
-        gfx_reset(gfx);
     }
+
+    gfx_cleanup(gfx);
 
     return 0;
 }

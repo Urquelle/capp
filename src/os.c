@@ -1,6 +1,7 @@
+typedef struct Os        Os;
 typedef struct Os_Button Os_Button;
 typedef struct Os_Mouse  Os_Mouse;
-typedef struct Os        Os;
+typedef enum   Os_Result Os_Result;
 
 struct Os_Button {
     bool down;
@@ -31,6 +32,7 @@ struct Os {
 
     struct {
         Pos pos;
+        Vec2 dim;
     } window;
 
     struct {
@@ -39,8 +41,26 @@ struct Os {
         char *   vendor;
     } graphics;
 
+    char *msg;
     void *meta;
 };
+
+enum Os_Result {
+    OS_FALSE,
+    OS_FAILURE = OS_FALSE,
+    OS_TRUE,
+    OS_SUCCESS = OS_TRUE,
+};
+
+/* ################################################### */
+/* ####################### API ####################### */
+/* ################################################### */
+
+#define OS_API_INIT()      Os_Result    os_init(Os *os)
+#define OS_API_PULL()      void         os_pull(Os *os)
+#define OS_API_PUSH()      void         os_push(Os *os)
+#define OS_API_READFILE()  bool         os_readfile(char *filename, char **result, size_t *size)
+#define OS_API_WRITEFILE() bool         os_writefile(char *filename, char *data, size_t len)
 
 #include "os_win32.c"
 

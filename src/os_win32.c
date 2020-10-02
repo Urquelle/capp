@@ -3,7 +3,7 @@
 typedef struct {
     HDC  dc;
     HWND window_handle;
-} Os_Win32Meta;
+} Os_Win32_Meta;
 
 /* win32_update_button {{{ */
 void
@@ -29,17 +29,13 @@ win32_main_window_callback(HWND window, UINT message, WPARAM w_param, LPARAM l_p
         } break;
 
         case WM_SIZE: {
-            /*
-            app->window.size.width  = (u32)(short) LOWORD(l_param);
-            app->window.size.height = (u32)(short) HIWORD(l_param);
-            */
+            os->window.dim.width  = (short) LOWORD(l_param);
+            os->window.dim.height = (short) HIWORD(l_param);
         } break;
 
         case WM_MOVE: {
-            /*
-            app->window.pos.x = (u32)(short) LOWORD(l_param);
-            app->window.pos.y = (u32)(short) HIWORD(l_param);
-            */
+            os->window.pos.x = (short) LOWORD(l_param);
+            os->window.pos.y = (short) HIWORD(l_param);
         }; break;
 
         case WM_PAINT: {
@@ -47,6 +43,7 @@ win32_main_window_callback(HWND window, UINT message, WPARAM w_param, LPARAM l_p
         } break;
 
         case WM_CHAR: {
+            /* @AUFGABE: virtual keys ebenfalls übernehmen */
             CHAR character = (CHAR)w_param;
 
             os->chars[os->num_chars] = character;
@@ -133,10 +130,10 @@ win32_main_window_callback(HWND window, UINT message, WPARAM w_param, LPARAM l_p
     return result;
 }
 /* }}} */
+/* os api {{{ */
 /* init {{{ */
-bool
-os_init(Os *os) {
-    Os_Win32Meta *meta = (Os_Win32Meta *)malloc(sizeof(Os_Win32Meta));
+OS_API_INIT() {
+    Os_Win32_Meta *meta = (Os_Win32_Meta *)malloc(sizeof(Os_Win32_Meta));
     os->meta = meta;
 
     char CLASS_NAME[]  = "app_window_class";
@@ -165,12 +162,14 @@ os_init(Os *os) {
     );
 
     if (!meta->window_handle) {
-        return false;
+        os->msg = "grafisches fenster konnte nicht erstellt werden";
+
+        return OS_FAILURE;
     }
 
     /*
-    os->win32.main_fiber    = ConvertThreadToFiber(0);
-    os->win32.message_fiber = CreateFiber(0, (PFIBER_START_ROUTINE)window_message_fiber_proc, app);
+    meta->main_fiber    = ConvertThreadToFiber(0);
+    meta->message_fiber = CreateFiber(0, (PFIBER_START_ROUTINE)window_message_fiber_proc, app);
     */
 
     SetWindowLongPtr(meta->window_handle, GWLP_USERDATA, (LONG_PTR)os);
@@ -179,7 +178,7 @@ os_init(Os *os) {
     meta->dc = GetDC(meta->window_handle);
 
     /*
-    app->win32.backbuffer.bytes_per_pixel = 4;
+    meta->backbuffer.bytes_per_pixel = 4;
     win32_resize_dib_section(app, app->window.size.width, app->window.size.height);
 
     Win32_Backbuffer *win_buffer = &app->win32.backbuffer;
@@ -199,16 +198,17 @@ os_init(Os *os) {
     raw_input_device.hwndTarget  = meta->window_handle;
 
     if (!RegisterRawInputDevices(&raw_input_device, 1, sizeof(raw_input_device))) {
-        return false;
+        os->msg = "maus konnte nicht eingebunden werden";
+
+        return OS_FAILURE;
     }
 
-    return true;
+    return OS_SUCCESS;
 }
 /* }}} */
 /* pull {{{ */
-void
-os_pull(Os *os) {
-    Os_Win32Meta *meta = (Os_Win32Meta *)os->meta;
+OS_API_PULL() {
+    Os_Win32_Meta *meta = (Os_Win32_Meta *)os->meta;
     MSG msg;
 
     /* ereignisbehandlung */
@@ -235,13 +235,11 @@ os_pull(Os *os) {
 }
 /* }}} */
 /* push {{{ */
-void
-os_push(Os *os) {
+OS_API_PUSH() {
 }
 /* }}} */
 /* readfile {{{ */
-bool
-os_readfile(char *filename, char **result, size_t *size) {
+OS_API_READFILE() {
     HANDLE file = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
     OVERLAPPED ol = {0};
 
@@ -267,8 +265,7 @@ os_readfile(char *filename, char **result, size_t *size) {
 }
 /* }}} */
 /* writefile {{{ */
-bool
-os_writefile(char *filename, char *data, size_t len) {
+OS_API_WRITEFILE() {
     HANDLE file = CreateFileA(filename, GENERIC_WRITE, FILE_SHARE_WRITE, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 
     if ( file == INVALID_HANDLE_VALUE ) {
@@ -282,5 +279,6 @@ os_writefile(char *filename, char *data, size_t len) {
 
     return SUCCEEDED(h);
 }
+/* }}} */
 /* }}} */
 

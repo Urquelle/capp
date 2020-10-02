@@ -10,9 +10,29 @@
 #define MAX(x, y) ((x) >= (y) ? (x) : (y))
 #define MIN(x, y) ((x) <= (y) ? (x) : (y))
 
-typedef struct Pos   Pos;
-typedef struct Rect  Rect;
-typedef struct Color Color;
+typedef struct Vec2          Vec2;
+typedef struct Pos           Pos;
+typedef struct Rect          Rect;
+typedef struct Color         Color;
+
+struct Vec2 {
+    union {
+        struct {
+            int32_t x;
+            int32_t y;
+        };
+
+        struct {
+            int32_t width;
+            int32_t height;
+        };
+
+        struct {
+            int32_t min;
+            int32_t max;
+        };
+    };
+};
 
 struct Pos {
     float x;

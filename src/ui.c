@@ -2,6 +2,7 @@ typedef struct Ui           Ui;
 typedef struct Ui_Btn       Ui_Btn;
 typedef struct Ui_Layout    Ui_Layout;
 typedef enum   Ui_Align     Ui_Align;
+typedef enum   Ui_Result    Ui_Result;
 
 enum Ui_Align {
     UI_DEFAULT,
@@ -10,15 +11,23 @@ enum Ui_Align {
     UI_CENTER,
 };
 
+enum Ui_Result {
+    UI_FALSE,
+    UI_FAILURE = UI_FALSE,
+    UI_TRUE,
+    UI_SUCCESS = UI_TRUE,
+};
+
 struct Ui {
     Map elems;
 
     uint32_t active_id;
     uint32_t hot_id;
 
-    Os_Mouse *mouse;
-    Gfx *gfx;
-    Mem_Arena *arena;
+    Os_Mouse  *   mouse;
+    Gfx       *   gfx;
+    Mem_Arena *   arena;
+    char      *   msg;
 };
 
 struct Ui_Layout {
@@ -43,13 +52,13 @@ ui_btn_new(uint32_t id, char *txt, Mem_Arena *arena) {
     return result;
 }
 
-bool
+Ui_Result
 ui_init(Ui *ui, Os_Mouse *mouse, Gfx *gfx, Mem_Arena *arena) {
     ui->mouse = mouse;
     ui->gfx   = gfx;
     ui->arena = arena;
 
-    return true;
+    return UI_SUCCESS;
 }
 
 void *
@@ -97,7 +106,7 @@ ui_btn(Ui *ui, uint32_t id, char *txt) {
         }
     }
 
-    gfx_push(ui->gfx, gfx_cmd_rect(r, COLOR_BLACK, ui->gfx->arena));
+    gfx_push(ui->gfx, gfx_cmd_rect(r, COLOR_BLACK, ui->gfx->temp_arena));
 
     return false;
 }
