@@ -1,10 +1,29 @@
 #include <windows.h>
 
 typedef struct {
-    HDC  dc;
-    HWND window_handle;
+    HDC                    dc;
+    HWND                   window_handle;
+    void                *  main_fiber;
+    void                *  message_fiber;
 } Os_Win32_Meta;
 
+/* win32_window_message_fiber_proc {{{ */
+static void CALLBACK win32_window_message_fiber_proc(Os *os) {
+    Os_Win32_Meta *meta = (Os_Win32_Meta *)os->meta;
+    SetTimer(meta->window_handle, 1, 1, 0);
+
+    for (;;) {
+        MSG message;
+
+        while (PeekMessage(&message, 0, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&message);
+            DispatchMessage(&message);
+        }
+
+        SwitchToFiber(meta->main_fiber);
+    }
+}
+/* }}} */
 /* win32_update_button {{{ */
 void
 win32_update_button(Os_Button *button, bool down, bool shift) {
@@ -22,6 +41,11 @@ win32_main_window_callback(HWND window, UINT message, WPARAM w_param, LPARAM l_p
     LRESULT result = 0;
 
     Os *os = (Os *)GetWindowLongPtrA(window, GWLP_USERDATA);
+    Os_Win32_Meta *meta = NULL;
+
+    if ( os ) {
+        meta = (Os_Win32_Meta *)os->meta;
+    }
 
     switch (message) {
         case WM_DESTROY: {
@@ -29,8 +53,15 @@ win32_main_window_callback(HWND window, UINT message, WPARAM w_param, LPARAM l_p
         } break;
 
         case WM_SIZE: {
-            os->window.dim.width  = (short) LOWORD(l_param);
-            os->window.dim.height = (short) HIWORD(l_param);
+            int32_t width  = LOWORD(l_param);
+            int32_t height = HIWORD(l_param);
+
+            if ( width != os->window.dim.width || height != os->window.dim.height ) {
+                os->window.dim_changed = true;
+            }
+
+            os->window.dim.width  = width;
+            os->window.dim.height = height;
         } break;
 
         case WM_MOVE: {
@@ -52,7 +83,7 @@ win32_main_window_callback(HWND window, UINT message, WPARAM w_param, LPARAM l_p
         } break;
 
         case WM_TIMER: {
-            // SwitchToFiber(app->win32.main_fiber);
+            SwitchToFiber(meta->main_fiber);
         } break;
 
         case WM_ENTERMENULOOP:
@@ -167,29 +198,13 @@ OS_API_INIT() {
         return OS_FAILURE;
     }
 
-    /*
     meta->main_fiber    = ConvertThreadToFiber(0);
-    meta->message_fiber = CreateFiber(0, (PFIBER_START_ROUTINE)window_message_fiber_proc, app);
-    */
+    meta->message_fiber = CreateFiber(0, (PFIBER_START_ROUTINE)win32_window_message_fiber_proc, os);
 
     SetWindowLongPtr(meta->window_handle, GWLP_USERDATA, (LONG_PTR)os);
     ShowWindow(meta->window_handle, SW_SHOW);
     UpdateWindow(meta->window_handle);
     meta->dc = GetDC(meta->window_handle);
-
-    /*
-    meta->backbuffer.bytes_per_pixel = 4;
-    win32_resize_dib_section(app, app->window.size.width, app->window.size.height);
-
-    Win32_Backbuffer *win_buffer = &app->win32.backbuffer;
-    Bitmap           *app_buffer = &app->graphics.backbuffer;
-
-    app_buffer->width           = win_buffer->width;
-    app_buffer->height          = win_buffer->height;
-    app_buffer->pitch           = win_buffer->pitch;
-    app_buffer->bytes_per_pixel = win_buffer->bytes_per_pixel;
-    app_buffer->data            = win_buffer->data;
-    */
 
     RAWINPUTDEVICE raw_input_device = {0};
 
@@ -278,6 +293,11 @@ OS_API_WRITEFILE() {
     CloseHandle(file);
 
     return SUCCEEDED(h);
+}
+/* }}} */
+/* debug {{{ */
+OS_API_DEBUG() {
+    OutputDebugString(msg);
 }
 /* }}} */
 /* }}} */

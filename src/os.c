@@ -31,8 +31,9 @@ struct Os {
     Os_Mouse mouse;
 
     struct {
-        Pos pos;
-        Vec2 dim;
+        Pos      pos;
+        Vec2i    dim;
+        bool     dim_changed;
     } window;
 
     struct {
@@ -61,6 +62,7 @@ enum Os_Result {
 #define OS_API_PUSH()      void         os_push(Os *os)
 #define OS_API_READFILE()  bool         os_readfile(char *filename, char **result, size_t *size)
 #define OS_API_WRITEFILE() bool         os_writefile(char *filename, char *data, size_t len)
+#define OS_API_DEBUG()     void         os_debug(char *msg)
 
 #include "os_win32.c"
 

@@ -7,9 +7,11 @@
 #include <assert.h>
 
 #include "common.c"
+#include "calc.c"
 #include "mem.c"
 #include "utf8.c"
 #include "util.c"
+#include "string.c"
 #include "os.c"
 #include "gfx.c"
 #include "ui.c"
@@ -45,8 +47,12 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR cmd_line, i
             printf("FEST, hab ich gesagt!\n");
         }
 
+        if ( gfx_render(gfx, os, &gfx->queue) != GFX_SUCCESS ) {
+            os_debug("fehler beim rendern aufgetreten");
+            exit(1);
+        }
+
         os_push(os);
-        gfx_render(gfx, &gfx->queue);
     }
 
     gfx_cleanup(gfx);
