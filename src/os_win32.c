@@ -218,6 +218,10 @@ OS_API_INIT() {
         return OS_FAILURE;
     }
 
+    LARGE_INTEGER frequency;
+    QueryPerformanceFrequency(&frequency);
+    os->time.ticks_per_second = frequency.QuadPart;
+
     return OS_SUCCESS;
 }
 /* }}} */
@@ -247,6 +251,24 @@ OS_API_PULL() {
 
     os->mouse.pos.x = mouse_pos.x - os->window.pos.x;
     os->mouse.pos.y = mouse_pos.y - os->window.pos.y;
+
+    /* zeit */
+    LARGE_INTEGER large_integer;
+    QueryPerformanceCounter(&large_integer);
+    uint64_t current_ticks = large_integer.QuadPart;
+
+    os->time.delta_ticks = (current_ticks - os->time.initial_ticks) - os->time.ticks;
+    os->time.ticks       = current_ticks - os->time.initial_ticks;
+
+    os->time.delta_nanoseconds  = (1000 * 1000 * 1000 * os->time.delta_ticks) / os->time.ticks_per_second;
+    os->time.delta_microseconds = os->time.delta_nanoseconds / 1000;
+    os->time.delta_milliseconds = os->time.delta_microseconds / 1000;
+    os->time.delta_seconds      = (float)os->time.delta_ticks / (float)os->time.ticks_per_second;
+
+    os->time.nanoseconds  = (1000 * 1000 * 1000 * os->time.ticks) / os->time.ticks_per_second;
+    os->time.microseconds = os->time.nanoseconds / 1000;
+    os->time.milliseconds = os->time.microseconds / 1000;
+    os->time.seconds      = (float)os->time.ticks / (float)os->time.ticks_per_second;
 }
 /* }}} */
 /* push {{{ */
@@ -298,6 +320,43 @@ OS_API_WRITEFILE() {
 /* debug {{{ */
 OS_API_DEBUG() {
     OutputDebugString(msg);
+}
+/* }}} */
+/* timer {{{ */
+typedef struct {
+    LARGE_INTEGER start;
+    LARGE_INTEGER stop;
+} Os_Win32_Timer_Meta;
+
+Os_Timer
+os_timer_start() {
+    Os_Timer result = {0};
+
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    result.start = counter.QuadPart;
+
+    return result;
+}
+
+void
+os_timer_stop(Os_Timer *timer) {
+    LARGE_INTEGER end;
+    LARGE_INTEGER freq;
+    LARGE_INTEGER diff;
+
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&end);
+
+    timer->end = end.QuadPart;
+
+    diff.QuadPart = end.QuadPart - timer->start;
+    diff.QuadPart *= 1000000;
+    diff.QuadPart /= freq.QuadPart;
+
+    timer->diff.microseconds = diff.QuadPart;
+    timer->diff.milliseconds = timer->diff.microseconds / 1000;
+    timer->diff.seconds      = (float)timer->diff.milliseconds / 1000.f;
 }
 /* }}} */
 /* }}} */
