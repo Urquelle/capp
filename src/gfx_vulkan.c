@@ -64,7 +64,7 @@ char *required_device_extensions[] = {
 uint32_t num_required_device_extensions = ARRAY_SIZE(required_device_extensions);
 
 Gfx_Vertex vertices[] = {
-    {{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{ 0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
     {{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},
     {{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}},
 };
@@ -236,8 +236,114 @@ gfx_vulkan_create_instance(Gfx *gfx) {
     return GFX_SUCCESS;
 }
 
+int32_t
+gfx_vulkan_find_memory_type(Gfx *gfx, uint32_t type_filter, VkMemoryPropertyFlags properties)
+{
+    Gfx_Vulkan_Meta *meta = (Gfx_Vulkan_Meta *)gfx->meta;
+    int32_t result = -1;
+
+    /* passenden speichertyp finden {{{ */
+    VkPhysicalDeviceMemoryProperties mem_properties;
+    vkGetPhysicalDeviceMemoryProperties(meta->physical_device, &mem_properties);
+
+    for ( uint32_t i = 0; i < mem_properties.memoryTypeCount; ++i ) {
+        if ( (type_filter & ( 1 << i )) &&
+             (mem_properties.memoryTypes[i].propertyFlags & properties) == properties )
+        {
+            result = i;
+            break;
+        }
+    }
+    /* }}} */
+
+    return result;
+}
+
 Gfx_Result
-gfx_vulkan_create_surface(Gfx *gfx, Os *os) {
+gfx_vulkan_create_buffer(Gfx *gfx, VkDeviceSize size, VkBufferUsageFlags usage,
+        VkMemoryPropertyFlags properties, VkBuffer *buffer, VkDeviceMemory *buffer_mem)
+{
+    Gfx_Vulkan_Meta *meta = (Gfx_Vulkan_Meta *)gfx->meta;
+    VkBufferCreateInfo buffer_info = {0};
+
+    buffer_info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_info.size        = size;
+    buffer_info.usage       = usage;
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if ( vkCreateBuffer(meta->logical_device, &buffer_info, NULL, buffer) != VK_SUCCESS ) {
+        gfx->msg = "buffer konnte nicht erstellt werden";
+
+        return GFX_FAILURE;
+    }
+
+    VkMemoryRequirements mem_requirements;
+    vkGetBufferMemoryRequirements(meta->logical_device, *buffer, &mem_requirements);
+
+    VkMemoryAllocateInfo alloc_info = {0};
+
+    alloc_info.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.allocationSize  = mem_requirements.size;
+    alloc_info.memoryTypeIndex = gfx_vulkan_find_memory_type(gfx, mem_requirements.memoryTypeBits,
+            properties);
+
+    if ( vkAllocateMemory(meta->logical_device, &alloc_info, NULL, buffer_mem) != VK_SUCCESS ) {
+        gfx->msg = "speicher für buffer konnte nicht reserviert werden";
+
+        return GFX_FAILURE;
+    }
+
+    vkBindBufferMemory(meta->logical_device, *buffer, *buffer_mem, 0);
+
+    return GFX_SUCCESS;
+}
+
+Gfx_Result
+gfx_vulkan_copy_buffer(Gfx *gfx, VkBuffer src_buffer, VkBuffer dst_buffer, VkDeviceSize size) {
+    Gfx_Vulkan_Meta *meta = (Gfx_Vulkan_Meta *)gfx->meta;
+
+    VkCommandBufferAllocateInfo alloc_info = {0};
+
+    alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandPool        = meta->command_pool;
+    alloc_info.commandBufferCount = 1;
+
+    VkCommandBuffer command_buffer;
+    vkAllocateCommandBuffers(meta->logical_device, &alloc_info, &command_buffer);
+
+    VkCommandBufferBeginInfo begin_info = {0};
+
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(command_buffer, &begin_info);
+
+    VkBufferCopy copy_region = {0};
+
+    copy_region.srcOffset = 0;
+    copy_region.dstOffset = 0;
+    copy_region.size      = size;
+
+    vkCmdCopyBuffer(command_buffer, src_buffer, dst_buffer, 1, &copy_region);
+    vkEndCommandBuffer(command_buffer);
+
+    VkSubmitInfo submit_info = {0};
+
+    submit_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffer;
+
+    vkQueueSubmit(meta->gfx_queue, 1, &submit_info, VK_NULL_HANDLE);
+    vkQueueWaitIdle(meta->gfx_queue);
+
+    vkFreeCommandBuffers(meta->logical_device, meta->command_pool, 1, &command_buffer);
+
+    return GFX_SUCCESS;
+}
+
+Gfx_Result
+gfx_vulkan_init_surface(Gfx *gfx, Os *os) {
     Gfx_Vulkan_Meta *meta = (Gfx_Vulkan_Meta *)gfx->meta;
     Os_Win32_Meta *os_meta = (Os_Win32_Meta *)os->meta;
 
@@ -587,68 +693,28 @@ gfx_vulkan_init_vertex_buffer(Gfx *gfx) {
     Gfx_Vulkan_Meta *meta = (Gfx_Vulkan_Meta *)gfx->meta;
 
     /* vertex buffer {{{ */
-    VkBufferCreateInfo buffer_info = {0};
+    VkDeviceSize buffer_size = sizeof(vertices[0]) * ARRAY_SIZE(vertices);
+    VkBuffer staging_buffer;
+    VkDeviceMemory staging_buffer_memory;
 
-    buffer_info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buffer_info.size        = sizeof(vertices[0])*ARRAY_SIZE(vertices);
-    buffer_info.usage       = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    if ( vkCreateBuffer(meta->logical_device, &buffer_info,
-                NULL, &meta->vertex_buffer) != VK_SUCCESS )
-    {
-        gfx->msg = "vertex buffer konnten nicht erstellt werden";
-
-        return GFX_FAILURE;
-    }
-
-    VkMemoryRequirements mem_requirements;
-    vkGetBufferMemoryRequirements(meta->logical_device, meta->vertex_buffer, &mem_requirements);
-
-    VkPhysicalDeviceMemoryProperties mem_properties;
-    vkGetPhysicalDeviceMemoryProperties(meta->physical_device, &mem_properties);
-
-    /* passenden speichertyp finden {{{ */
-    uint32_t              type_filter   = mem_requirements.memoryTypeBits;
-    VkMemoryPropertyFlags properties    = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-
-    int32_t mem_index = -1;
-    for ( uint32_t i = 0; i < mem_properties.memoryTypeCount; ++i ) {
-        if ( (type_filter & ( 1 << i )) &&
-             (mem_properties.memoryTypes[i].propertyFlags & properties) == properties )
-        {
-            mem_index = i;
-            break;
-        }
-    }
-
-    if ( mem_index == -1 ) {
-        gfx->msg = "kein passender speicher konnte für vertex buffer ermittelt werden";
-
-        return GFX_FAILURE;
-    }
-    /* }}} */
-
-    VkMemoryAllocateInfo alloc_info = {0};
-
-    alloc_info.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize  = mem_requirements.size;
-    alloc_info.memoryTypeIndex = mem_index;
-
-    if ( vkAllocateMemory(meta->logical_device, &alloc_info,
-                NULL, &meta->vertex_buffer_memory ) != VK_SUCCESS )
-    {
-        gfx->msg = "speicher für vertex buffer konnte nicht reserviert werden";
-
-        return GFX_FAILURE;
-    }
-
-    vkBindBufferMemory(meta->logical_device, meta->vertex_buffer, meta->vertex_buffer_memory, 0);
+    gfx_vulkan_create_buffer(gfx, buffer_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &staging_buffer, &staging_buffer_memory);
 
     void *data;
-    vkMapMemory(meta->logical_device, meta->vertex_buffer_memory, 0, buffer_info.size, 0, &data);
-    memcpy(data, vertices, buffer_info.size);
-    vkUnmapMemory(meta->logical_device, meta->vertex_buffer_memory);
+    vkMapMemory(meta->logical_device, staging_buffer_memory, 0, buffer_size, 0, &data);
+    memcpy(data, vertices, buffer_size);
+    vkUnmapMemory(meta->logical_device, staging_buffer_memory);
+
+    gfx_vulkan_create_buffer(gfx, buffer_size,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &meta->vertex_buffer, &meta->vertex_buffer_memory);
+
+    gfx_vulkan_copy_buffer(gfx, staging_buffer, meta->vertex_buffer, buffer_size);
+
+    vkDestroyBuffer(meta->logical_device, staging_buffer, NULL);
+    vkFreeMemory(meta->logical_device, staging_buffer_memory, NULL);
     /* }}} */
 
     return GFX_SUCCESS;
@@ -703,13 +769,13 @@ gfx_vulkan_init_command_buffers(Gfx *gfx) {
         render_pass_info_i.pClearValues      = &clear_color;
 
         vkCmdBeginRenderPass(meta->command_buffers[i], &render_pass_info_i, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(meta->command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, meta->pipeline);
+            vkCmdBindPipeline(meta->command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, meta->pipeline);
 
-        VkBuffer vertex_buffers[] = { meta->vertex_buffer };
-        VkDeviceSize offsets[]    = {0};
-        vkCmdBindVertexBuffers(meta->command_buffers[i], 0, 1, vertex_buffers, offsets);
+            VkBuffer vertex_buffers[] = { meta->vertex_buffer };
+            VkDeviceSize offsets[]    = {0};
+            vkCmdBindVertexBuffers(meta->command_buffers[i], 0, 1, vertex_buffers, offsets);
 
-        vkCmdDraw(meta->command_buffers[i], ARRAY_SIZE(vertices), 1, 0, 0);
+            vkCmdDraw(meta->command_buffers[i], ARRAY_SIZE(vertices), 1, 0, 0);
         vkCmdEndRenderPass(meta->command_buffers[i]);
 
         if ( vkEndCommandBuffer(meta->command_buffers[i]) != VK_SUCCESS ) {
@@ -1110,7 +1176,7 @@ GFX_API_INIT() {
         return GFX_FAILURE;
     }
 
-    if ( gfx_vulkan_create_surface(gfx, os)     != GFX_SUCCESS ) {
+    if ( gfx_vulkan_init_surface(gfx, os)     != GFX_SUCCESS ) {
         return GFX_FAILURE;
     }
 
@@ -1291,7 +1357,17 @@ GFX_API_RENDER() {
     present_info.pImageIndices      = &image_index;
     present_info.pResults           = NULL;
 
-    vkQueuePresentKHR(meta->present_queue, &present_info);
+    ret = vkQueuePresentKHR(meta->present_queue, &present_info);
+    if ( ret == VK_ERROR_OUT_OF_DATE_KHR || ret == VK_SUBOPTIMAL_KHR ) {
+        gfx_vulkan_init_swapchain(gfx, os);
+        os->window.dim_changed = false;
+
+        return GFX_SUCCESS;
+    } else if ( ret != VK_SUCCESS ) {
+        gfx->msg = "fehler beim zeichnen aufgetreten";
+
+        return GFX_FAILURE;
+    }
 
     meta->current_frame = (meta->current_frame + 1) % GFX_MAX_FRAMES_IN_FLIGHT;
 
